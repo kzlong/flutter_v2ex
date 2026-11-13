@@ -29,11 +29,26 @@ class TopicWebApi {
       //     buildCacheOptions(const Duration(days: 4), forceRefresh: true),
       extra: {'ua': 'mob', 'silentError': silent},
     );
-    // Use html parser and query selector
-    var document = parse(response.data);
+    // V2EX may return a verification page or a non-topic HTML document.
+    // Fail explicitly instead of dereferencing absent topic DOM elements.
+    if (response.data is! String) {
+      throw const FormatException('帖子响应格式异常：服务器未返回 HTML');
+    }
+    final html = response.data as String;
+    var document = parse(html);
+    final challenge = response.headers.value('cf-mitigated');
+    if (challenge?.toLowerCase() == 'challenge' ||
+        (document.querySelector('#Wrapper') == null &&
+            (html.contains('cf-challenge') ||
+                html.contains('Just a moment') ||
+                html.contains('challenge-platform')))) {
+      throw const FormatException('V2EX 需要浏览器安全验证，无法解析帖子内容');
+    }
     detailModel.topicId = topicId;
 
-    if (response.redirects.isNotEmpty ||
+    final redirectedToLogin = response.realUri.path == '/signin' ||
+        response.realUri.path == '/2fa';
+    if (redirectedToLogin ||
         document.querySelector('#Main > div.box > div.message') != null) {
       SmartDialog.show(
         useSystem: true,
@@ -79,29 +94,37 @@ class TopicWebApi {
 
     updateOnceFromMenu();
 
-    final dom.Element wrapperEl = document.querySelector('#Wrapper')!;
-    final dom.Element wrapperContent = wrapperEl.querySelector('div')!;
-    final dom.Element mainBox = wrapperContent.children.first;
+    final wrapperEl = document.querySelector('#Wrapper');
+    final mainBox = document.querySelector('#Main > div.box');
+    if (wrapperEl == null || mainBox == null) {
+      throw const FormatException('帖子页面结构发生变化，未找到正文区域');
+    }
 
     /// 标题、头像、昵称、发布时间、浏览量
-    final dom.Element headerEl = mainBox.querySelector('.header')!;
+    final headerEl = mainBox.querySelector('.header');
+    if (headerEl == null) {
+      throw const FormatException('帖子页面结构发生变化，未找到标题区域');
+    }
 
     final dom.Element? innerEl = mainBox.querySelector('.inner');
 
     /// 头像
     detailModel.avatar =
-        headerEl.querySelector('div.fr > a > img')!.attributes["src"]!;
+        headerEl.querySelector('div.fr > a > img')?.attributes['src'] ?? '';
 
     /// 昵称
-    detailModel.createdId = headerEl.querySelector('small > a')!.text;
+    detailModel.createdId = headerEl.querySelector('small > a')?.text ?? '';
 
     /// 节点id 和 节点名称
-    final dom.Element nodeAnchor = headerEl.querySelector('a[href^="/go/"]')!;
-    detailModel.nodeId = nodeAnchor.attributes["href"]!.replaceAll('/go/', '');
-    detailModel.nodeName = nodeAnchor.text;
+    final nodeAnchor = headerEl.querySelector('a[href^="/go/"]');
+    detailModel.nodeId =
+        (nodeAnchor?.attributes['href'] ?? '').replaceFirst('/go/', '');
+    detailModel.nodeName = nodeAnchor?.text ?? '';
 
     ///  at 9 小时 26 分钟前，1608 次点击
-    var pureStr = headerEl.querySelector('small')!.text.split('at ')[1];
+    final timeText = headerEl.querySelector('small')?.text ?? '';
+    final timeParts = timeText.split('at ');
+    final pureStr = timeParts.length > 1 ? timeParts.last : timeText;
     List pureStrList = pureStr.split('·');
     detailModel.createdTime = pureStrList[0].replaceFirst(' +08:00', '');
     detailModel.visitorCount = pureStrList.length >= 2
@@ -110,8 +133,8 @@ class TopicWebApi {
 
     /// APPEND EIDT MOVE
     var opActionNode = headerEl.querySelector('small');
-    if (opActionNode!.querySelector('a.op') != null) {
-      var opNodes = opActionNode.querySelectorAll('a.op');
+    if (opActionNode?.querySelector('a.op') != null) {
+      var opNodes = opActionNode!.querySelectorAll('a.op');
       for (var i in opNodes) {
         if (i.text.contains('APPEND')) {
           detailModel.isAPPEND = true;
@@ -124,7 +147,10 @@ class TopicWebApi {
         }
       }
     }
-    detailModel.topicTitle = headerEl.querySelector('h1')!.text;
+    detailModel.topicTitle = headerEl.querySelector('h1')?.text ?? '';
+    if (detailModel.topicTitle.isEmpty) {
+      throw const FormatException('帖子标题解析失败，网站页面结构可能已变化');
+    }
 
     // [email_protected] 转码回到正确的邮件字符串
     List<dom.Element> aRootNode =
