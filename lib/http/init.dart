@@ -181,7 +181,7 @@ class Request {
       return response.data;
     } on DioException catch (e) {
       logDebug('downloadFile error---------$e');
-      return Future.error(ApiInterceptor.dioError(e));
+      return Future.error(await ApiInterceptor.dioError(e));
     }
   }
 
