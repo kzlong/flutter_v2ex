@@ -27,13 +27,28 @@ class TopicWebApi {
       data: {'p': p},
       // cacheOptions:
       //     buildCacheOptions(const Duration(days: 4), forceRefresh: true),
-      extra: {'ua': 'mob', 'silentError': silent},
+      extra: {'ua': 'pc', 'silentError': silent, 'resType': ResponseType.plain},
     );
-    // Use html parser and query selector
-    var document = parse(response.data);
+    // V2EX may return a verification page or a non-topic HTML document.
+    // Fail explicitly instead of dereferencing absent topic DOM elements.
+    if (response.data is! String) {
+      throw const FormatException('帖子响应格式异常：服务器未返回 HTML');
+    }
+    final html = response.data as String;
+    var document = parse(html);
+    final challenge = response.headers.value('cf-mitigated');
+    if (challenge?.toLowerCase() == 'challenge' ||
+        (document.querySelector('#Wrapper') == null &&
+            (html.contains('cf-challenge') ||
+                html.contains('Just a moment') ||
+                html.contains('challenge-platform')))) {
+      throw const FormatException('V2EX 需要浏览器安全验证，无法解析帖子内容');
+    }
     detailModel.topicId = topicId;
 
-    if (response.redirects.isNotEmpty ||
+    final redirectedToLogin = response.realUri.path == '/signin' ||
+        response.realUri.path == '/2fa';
+    if (redirectedToLogin ||
         document.querySelector('#Main > div.box > div.message') != null) {
       SmartDialog.show(
         useSystem: true,
@@ -79,29 +94,54 @@ class TopicWebApi {
 
     updateOnceFromMenu();
 
-    final dom.Element wrapperEl = document.querySelector('#Wrapper')!;
-    final dom.Element wrapperContent = wrapperEl.querySelector('div')!;
-    final dom.Element mainBox = wrapperContent.children.first;
+    // Mobile and desktop V2EX layouts do not always share the same wrapper.
+    // Locate the topic by its header rather than requiring #Wrapper.
+    final wrapperEl = document.querySelector('#Wrapper');
+    final wrapperContent = wrapperEl?.querySelector('div') ??
+        document.querySelector('#Main') ??
+        document.body;
+    final topicHeader = document.querySelector('#Main .header h1') ??
+        document.querySelector('.box .header h1') ??
+        document.querySelector('#Main h1');
+    dom.Element? mainBox = topicHeader;
+    while (mainBox != null && !mainBox.classes.contains('box')) {
+      mainBox = mainBox.parent;
+    }
+    mainBox ??= document.querySelector('#Main > div.box');
+    if (mainBox == null) {
+      final pageTitle = document.querySelector('title')?.text.trim() ?? '';
+      final hasLogin = document.querySelector('form[action*="signin"]') != null;
+      throw FormatException(hasLogin
+          ? 'V2EX 返回登录页面，请登录后重试'
+          : '无法识别帖子页面（HTTP ${response.statusCode}，标题：${pageTitle.isEmpty ? "无" : pageTitle}）');
+    }
 
     /// 标题、头像、昵称、发布时间、浏览量
-    final dom.Element headerEl = mainBox.querySelector('.header')!;
+    final headerEl = mainBox.querySelector('.header') ??
+        topicHeader?.parent;
+    if (headerEl == null) {
+      throw const FormatException('帖子页面结构发生变化，未找到标题区域');
+    }
 
     final dom.Element? innerEl = mainBox.querySelector('.inner');
 
     /// 头像
     detailModel.avatar =
-        headerEl.querySelector('div.fr > a > img')!.attributes["src"]!;
+        headerEl.querySelector('div.fr > a > img')?.attributes['src'] ?? '';
 
     /// 昵称
-    detailModel.createdId = headerEl.querySelector('small > a')!.text;
+    detailModel.createdId = headerEl.querySelector('small > a')?.text ?? '';
 
     /// 节点id 和 节点名称
-    final dom.Element nodeAnchor = headerEl.querySelector('a[href^="/go/"]')!;
-    detailModel.nodeId = nodeAnchor.attributes["href"]!.replaceAll('/go/', '');
-    detailModel.nodeName = nodeAnchor.text;
+    final nodeAnchor = headerEl.querySelector('a[href^="/go/"]');
+    detailModel.nodeId =
+        (nodeAnchor?.attributes['href'] ?? '').replaceFirst('/go/', '');
+    detailModel.nodeName = nodeAnchor?.text ?? '';
 
     ///  at 9 小时 26 分钟前，1608 次点击
-    var pureStr = headerEl.querySelector('small')!.text.split('at ')[1];
+    final timeText = headerEl.querySelector('small')?.text ?? '';
+    final timeParts = timeText.split('at ');
+    final pureStr = timeParts.length > 1 ? timeParts.last : timeText;
     List pureStrList = pureStr.split('·');
     detailModel.createdTime = pureStrList[0].replaceFirst(' +08:00', '');
     detailModel.visitorCount = pureStrList.length >= 2
@@ -110,8 +150,8 @@ class TopicWebApi {
 
     /// APPEND EIDT MOVE
     var opActionNode = headerEl.querySelector('small');
-    if (opActionNode!.querySelector('a.op') != null) {
-      var opNodes = opActionNode.querySelectorAll('a.op');
+    if (opActionNode?.querySelector('a.op') != null) {
+      var opNodes = opActionNode!.querySelectorAll('a.op');
       for (var i in opNodes) {
         if (i.text.contains('APPEND')) {
           detailModel.isAPPEND = true;
@@ -124,7 +164,11 @@ class TopicWebApi {
         }
       }
     }
-    detailModel.topicTitle = headerEl.querySelector('h1')!.text;
+    detailModel.topicTitle =
+        (headerEl.querySelector('h1') ?? topicHeader)?.text ?? '';
+    if (detailModel.topicTitle.isEmpty) {
+      throw const FormatException('帖子标题解析失败，网站页面结构可能已变化');
+    }
 
     // [email_protected] 转码回到正确的邮件字符串
     List<dom.Element> aRootNode =
@@ -147,7 +191,10 @@ class TopicWebApi {
     }
 
     // 判断是否有正文
-    final dom.Element? contentDom = mainBox.querySelector('div.cell > div');
+    final dom.Element? contentDom =
+        mainBox.querySelector('.topic_content') ??
+        document.querySelector('#Main .topic_content') ??
+        mainBox.querySelector('div.cell > div');
     if (contentDom != null) {
       detailModel.content = contentDom.text;
       detailModel.contentRendered = Utils.linkMatch(contentDom);
@@ -216,7 +263,7 @@ class TopicWebApi {
       dom.Element? replyBoxDom;
 
       /// tag标签判断：过滤掉分隔符
-      final wrapperChildren = wrapperContent.children
+      final wrapperChildren = (wrapperContent ?? mainBox.parent ?? mainBox).children
           .where((element) => !(element.localName == 'div' &&
               (element.classes.contains('sep') ||
                   element.id.contains('topic-tip-box'))))
@@ -230,8 +277,9 @@ class TopicWebApi {
           break;
         }
       }
-      replyBoxDom ??= wrapperContent.querySelector('#Replies') ??
-          wrapperContent.querySelector('div.box[id="Replies"]');
+      replyBoxDom ??= document.querySelector('#Replies') ??
+          document.querySelector('div.box[id="Replies"]') ??
+          document.querySelector('#Main .cell[id^="r_"]')?.parent;
 
       if (replyBoxDom != null) {
         final replyInfoCell = replyBoxDom.querySelector('div.cell');
@@ -292,71 +340,57 @@ class TopicWebApi {
         var replyTrQuery = 'table > tbody > tr';
         for (var aNode in rootNode) {
           ReplyItem replyItem = ReplyItem();
-          final dom.Element replyItemEl = aNode.querySelector(replyTrQuery)!;
-          final dom.Element mainContentEl =
-              replyItemEl.querySelector('td:nth-child(5)')!;
+          final replyItemEl = aNode.querySelector(replyTrQuery);
+          final mainContentEl =
+              replyItemEl?.querySelector('td:nth-child(5)') ?? aNode;
+          final contentDom = mainContentEl.querySelector('.reply_content');
+          if (contentDom == null) continue;
 
-          /// 用户资料
-          replyItem.avatar = Uri.encodeFull(replyItemEl
-              .querySelector('td:nth-child(1) > img')!
-              .attributes["src"]!);
-          replyItem.userName = mainContentEl.querySelector('strong > a')!.text;
-          var badgeElement =
-              mainContentEl.querySelector('div.badges > div.badge');
-          String? status = badgeElement?.text;
-          replyItem.isMod = status == 'MOD';
-          replyItem.isOwner = status == 'OP';
+          final avatarEl = aNode.querySelector('img.avatar') ??
+              aNode.querySelector('.avatar') ??
+              replyItemEl?.querySelector('td:nth-child(1) img');
+          replyItem.avatar = Uri.encodeFull(
+              avatarEl?.attributes['src'] ?? '');
+          replyItem.userName = avatarEl?.attributes['alt'] ??
+              mainContentEl.querySelector('strong a')?.text ?? '';
+          final badges = mainContentEl.querySelectorAll('.badge');
+          replyItem.isMod = badges.any((badge) =>
+              badge.text.trim().toUpperCase() == 'MOD');
+          replyItem.isOwner = badges.any((badge) =>
+              badge.text.trim().toUpperCase() == 'OP');
 
-          /// 回复时间
-          replyItem.lastReplyTime = mainContentEl
-              .querySelector('span.fade.small')!
-              .text
-              .replaceFirst(' +08:00', ''); // 时间（去除+ 08:00）和平台（Android/iPhone）
-
-          /// 平台
+          replyItem.lastReplyTime =
+              (mainContentEl.querySelector('.ago')?.text ??
+                  mainContentEl.querySelector('span.fade.small')?.text ??
+                  '').replaceFirst(' +08:00', '');
           if (replyItem.lastReplyTime.contains('via')) {
-            var platform = replyItem.lastReplyTime
-                .split('via')[1]
-                .replaceAll(RegExp(r"\s+"), "");
-            replyItem.lastReplyTime =
-                replyItem.lastReplyTime.split('via')[0].replaceAll("/t/", "");
-            replyItem.platform = platform;
+            final parts = replyItem.lastReplyTime.split('via');
+            replyItem.lastReplyTime = parts.first.trim();
+            replyItem.platform = parts.last.trim();
           }
 
-          /// 感谢数 和 状态
-          var smallFade =
-              mainContentEl.querySelector("span[class='small fade']");
-          if (smallFade != null) {
-            replyItem.favorites = int.parse(smallFade.text.split(" ")[1]);
-            if (mainContentEl.querySelector("div.fr > div.thanked") != null) {
-              replyItem.favoritesStatus = true;
-            }
-          }
-
-          /// 楼层
-          replyItem.floorNumber =
-              int.parse(mainContentEl.querySelector('div.fr > span')!.text);
-
-          /// 评论内容
-          var contentDom = mainContentEl.querySelector('div.reply_content')!;
+          final thanksText =
+              mainContentEl.querySelector('.small.fade')?.text ?? '';
+          replyItem.favorites =
+              int.tryParse(RegExp(r'\d+').firstMatch(thanksText)?.group(0) ?? '') ?? 0;
+          replyItem.favoritesStatus =
+              mainContentEl.querySelector('.thanked') != null;
+          replyItem.floorNumber = int.tryParse(
+              mainContentEl.querySelector('.no')?.text ??
+              mainContentEl.querySelector('div.fr > span')?.text ?? '') ?? 0;
           replyItem.contentRendered = Utils.linkMatch(contentDom);
           replyItem.content = contentDom.text;
-          var replyImgs = contentDom.querySelectorAll('img');
-          if (replyImgs.isNotEmpty) {
-            for (var imgNode in replyImgs) {
-              replyItem.imgList
-                  .add(Utils().imageUrl(imgNode.attributes['src']!));
+          for (final img in contentDom.querySelectorAll('img')) {
+            final src = img.attributes['src'];
+            if (src != null) replyItem.imgList.add(Utils().imageUrl(src));
+          }
+          for (final link in contentDom.querySelectorAll('a')) {
+            if ((link.attributes['href'] ?? '').startsWith('/member/')) {
+              replyItem.replyMemberList.add(link.text);
             }
           }
-          var replyMemberNodes = contentDom.querySelectorAll('a');
-          if (replyMemberNodes.isNotEmpty) {
-            for (var aNode in replyMemberNodes) {
-              if (aNode.attributes['href']!.startsWith('/member')) {
-                replyItem.replyMemberList.add(aNode.text);
-              }
-            }
-          }
-          replyItem.replyId = aNode.attributes["id"]!.substring(2);
+          replyItem.replyId =
+              (aNode.attributes['id'] ?? '').replaceFirst('r_', '');
           replies.add(replyItem);
         }
       }

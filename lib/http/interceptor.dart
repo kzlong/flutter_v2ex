@@ -29,7 +29,8 @@ class ApiInterceptor extends Interceptor {
   void onError(DioException err, ErrorInterceptorHandler handler) async {
     // 处理网络请求错误
     // handler.next(err);
-    if (err.requestOptions.extra['silentError'] != true) {
+    if (err.type != DioExceptionType.cancel &&
+        err.requestOptions.extra['silentError'] != true) {
       SmartDialog.showToast(
         await dioError(err),
         displayType: SmartToastType.onlyRefresh,
@@ -43,7 +44,21 @@ class ApiInterceptor extends Interceptor {
       case DioExceptionType.badCertificate:
         return '证书有误！';
       case DioExceptionType.badResponse:
-        return '服务器异常，请稍后重试！';
+        final response = error.response;
+        final status = response?.statusCode;
+        final challenge = response?.headers.value('cf-mitigated');
+        if (challenge?.toLowerCase() == 'challenge') {
+          return 'V2EX 需要浏览器安全验证，请在浏览器打开网站完成验证后重试';
+        }
+        if (status == 401) return '登录状态已失效，请重新登录';
+        if (status == 403) return 'V2EX 拒绝了请求（HTTP 403），请检查登录或网站安全验证';
+        if (status == 429) return '请求过于频繁（HTTP 429），请稍后重试';
+        if (status != null && status >= 500) {
+          return 'V2EX 服务器暂时不可用（HTTP $status）';
+        }
+        return status == null
+            ? '服务器响应异常，请稍后重试'
+            : '请求失败（HTTP $status），请稍后重试';
       case DioExceptionType.cancel:
         return "请求已被取消，请重新请求";
       case DioExceptionType.connectionError:
@@ -56,6 +71,8 @@ class ApiInterceptor extends Interceptor {
         return "发送请求超时，请检查网络设置";
       case DioExceptionType.unknown:
         return "网络异常，请稍后重试！";
+      default:
+        return "请求处理超时或网络异常，请稍后重试";
     }
   }
 
