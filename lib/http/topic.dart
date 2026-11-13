@@ -340,71 +340,57 @@ class TopicWebApi {
         var replyTrQuery = 'table > tbody > tr';
         for (var aNode in rootNode) {
           ReplyItem replyItem = ReplyItem();
-          final dom.Element replyItemEl = aNode.querySelector(replyTrQuery)!;
-          final dom.Element mainContentEl =
-              replyItemEl.querySelector('td:nth-child(5)')!;
+          final replyItemEl = aNode.querySelector(replyTrQuery);
+          final mainContentEl =
+              replyItemEl?.querySelector('td:nth-child(5)') ?? aNode;
+          final contentDom = mainContentEl.querySelector('.reply_content');
+          if (contentDom == null) continue;
 
-          /// 用户资料
-          replyItem.avatar = Uri.encodeFull(replyItemEl
-              .querySelector('td:nth-child(1) > img')!
-              .attributes["src"]!);
-          replyItem.userName = mainContentEl.querySelector('strong > a')!.text;
-          var badgeElement =
-              mainContentEl.querySelector('div.badges > div.badge');
-          String? status = badgeElement?.text;
-          replyItem.isMod = status == 'MOD';
-          replyItem.isOwner = status == 'OP';
+          final avatarEl = aNode.querySelector('img.avatar') ??
+              aNode.querySelector('.avatar') ??
+              replyItemEl?.querySelector('td:nth-child(1) img');
+          replyItem.avatar = Uri.encodeFull(
+              avatarEl?.attributes['src'] ?? '');
+          replyItem.userName = avatarEl?.attributes['alt'] ??
+              mainContentEl.querySelector('strong a')?.text ?? '';
+          final badges = mainContentEl.querySelectorAll('.badge');
+          replyItem.isMod = badges.any((badge) =>
+              badge.text.trim().toUpperCase() == 'MOD');
+          replyItem.isOwner = badges.any((badge) =>
+              badge.text.trim().toUpperCase() == 'OP');
 
-          /// 回复时间
-          replyItem.lastReplyTime = mainContentEl
-              .querySelector('span.fade.small')!
-              .text
-              .replaceFirst(' +08:00', ''); // 时间（去除+ 08:00）和平台（Android/iPhone）
-
-          /// 平台
+          replyItem.lastReplyTime =
+              (mainContentEl.querySelector('.ago')?.text ??
+                  mainContentEl.querySelector('span.fade.small')?.text ??
+                  '').replaceFirst(' +08:00', '');
           if (replyItem.lastReplyTime.contains('via')) {
-            var platform = replyItem.lastReplyTime
-                .split('via')[1]
-                .replaceAll(RegExp(r"\s+"), "");
-            replyItem.lastReplyTime =
-                replyItem.lastReplyTime.split('via')[0].replaceAll("/t/", "");
-            replyItem.platform = platform;
+            final parts = replyItem.lastReplyTime.split('via');
+            replyItem.lastReplyTime = parts.first.trim();
+            replyItem.platform = parts.last.trim();
           }
 
-          /// 感谢数 和 状态
-          var smallFade =
-              mainContentEl.querySelector("span[class='small fade']");
-          if (smallFade != null) {
-            replyItem.favorites = int.parse(smallFade.text.split(" ")[1]);
-            if (mainContentEl.querySelector("div.fr > div.thanked") != null) {
-              replyItem.favoritesStatus = true;
-            }
-          }
-
-          /// 楼层
-          replyItem.floorNumber =
-              int.parse(mainContentEl.querySelector('div.fr > span')!.text);
-
-          /// 评论内容
-          var contentDom = mainContentEl.querySelector('div.reply_content')!;
+          final thanksText =
+              mainContentEl.querySelector('.small.fade')?.text ?? '';
+          replyItem.favorites =
+              int.tryParse(RegExp(r'\\d+').firstMatch(thanksText)?.group(0) ?? '') ?? 0;
+          replyItem.favoritesStatus =
+              mainContentEl.querySelector('.thanked') != null;
+          replyItem.floorNumber = int.tryParse(
+              mainContentEl.querySelector('.no')?.text ??
+              mainContentEl.querySelector('div.fr > span')?.text ?? '') ?? 0;
           replyItem.contentRendered = Utils.linkMatch(contentDom);
           replyItem.content = contentDom.text;
-          var replyImgs = contentDom.querySelectorAll('img');
-          if (replyImgs.isNotEmpty) {
-            for (var imgNode in replyImgs) {
-              replyItem.imgList
-                  .add(Utils().imageUrl(imgNode.attributes['src']!));
+          for (final img in contentDom.querySelectorAll('img')) {
+            final src = img.attributes['src'];
+            if (src != null) replyItem.imgList.add(Utils().imageUrl(src));
+          }
+          for (final link in contentDom.querySelectorAll('a')) {
+            if ((link.attributes['href'] ?? '').startsWith('/member/')) {
+              replyItem.replyMemberList.add(link.text);
             }
           }
-          var replyMemberNodes = contentDom.querySelectorAll('a');
-          if (replyMemberNodes.isNotEmpty) {
-            for (var aNode in replyMemberNodes) {
-              if (aNode.attributes['href']!.startsWith('/member')) {
-                replyItem.replyMemberList.add(aNode.text);
-              }
-            }
-          }
-          replyItem.replyId = aNode.attributes["id"]!.substring(2);
+          replyItem.replyId =
+              (aNode.attributes['id'] ?? '').replaceFirst('r_', '');
           replies.add(replyItem);
         }
       }
