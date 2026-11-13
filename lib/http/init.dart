@@ -56,9 +56,9 @@ class Request {
       //请求基地址,可以包含子路径
       baseUrl: Strings.v2exHost,
       //连接服务器超时时间，单位是毫秒.
-      connectTimeout: const Duration(milliseconds: 12000),
+      connectTimeout: const Duration(seconds: 20),
       //响应流上前后两次接受到数据的间隔，单位为毫秒。
-      receiveTimeout: const Duration(milliseconds: 12000),
+      receiveTimeout: const Duration(seconds: 20),
       //Http请求头.
       // headers: {
       //   'cookie': '',
@@ -161,7 +161,7 @@ class Request {
       return response;
     } on DioException catch (e) {
       logDebug('post error---------$e');
-      return Future.error(ApiInterceptor.dioError(e));
+      return Future.error(await ApiInterceptor.dioError(e));
     }
   }
 
@@ -206,7 +206,7 @@ class Request {
           "User-Agent: MOT-V9mm/00.62 UP.Browser/6.2.3.4.c.1.123 (GUI) MMP/2.0";
     } else {
       headerUa =
-          'Mozilla/5.0 (MaciMozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36';
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36';
     }
     return headerUa;
   }
