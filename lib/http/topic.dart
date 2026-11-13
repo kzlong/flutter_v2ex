@@ -102,8 +102,11 @@ class TopicWebApi {
         document.body;
     final topicHeader = document.querySelector('#Main .header h1') ??
         document.querySelector('.box .header h1');
-    final mainBox = document.querySelector('#Main > div.box') ??
-        topicHeader?.parent?.parent;
+    dom.Element? mainBox = topicHeader;
+    while (mainBox != null && !mainBox.classes.contains('box')) {
+      mainBox = mainBox.parent;
+    }
+    mainBox ??= document.querySelector('#Main > div.box');
     if (mainBox == null) {
       final pageTitle = document.querySelector('title')?.text.trim() ?? '';
       final hasLogin = document.querySelector('form[action*="signin"]') != null;
