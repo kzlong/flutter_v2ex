@@ -51,7 +51,7 @@ dependencies:
     dio_cookie_manager: ^3.3.0
 
     # dom解析渲染
-    html: ^0.15.6
+    html: 0.15.6
     webfeed_plus:
         git:
             url: https://github.com/guozhigq/webfeed_plus.git
