@@ -95,8 +95,9 @@ class TopicWebApi {
     updateOnceFromMenu();
 
     final wrapperEl = document.querySelector('#Wrapper');
+    final wrapperContent = wrapperEl?.querySelector('div');
     final mainBox = document.querySelector('#Main > div.box');
-    if (wrapperEl == null || mainBox == null) {
+    if (wrapperContent == null || mainBox == null) {
       throw const FormatException('帖子页面结构发生变化，未找到正文区域');
     }
 
