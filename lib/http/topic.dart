@@ -372,7 +372,7 @@ class TopicWebApi {
           final thanksText =
               mainContentEl.querySelector('.small.fade')?.text ?? '';
           replyItem.favorites =
-              int.tryParse(RegExp(r'\\d+').firstMatch(thanksText)?.group(0) ?? '') ?? 0;
+              int.tryParse(RegExp(r'\d+').firstMatch(thanksText)?.group(0) ?? '') ?? 0;
           replyItem.favoritesStatus =
               mainContentEl.querySelector('.thanked') != null;
           replyItem.floorNumber = int.tryParse(
