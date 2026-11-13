@@ -71,6 +71,8 @@ class ApiInterceptor extends Interceptor {
         return "发送请求超时，请检查网络设置";
       case DioExceptionType.unknown:
         return "网络异常，请稍后重试！";
+      default:
+        return "请求处理超时或网络异常，请稍后重试";
     }
   }
 
