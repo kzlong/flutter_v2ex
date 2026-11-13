@@ -27,7 +27,7 @@ class TopicWebApi {
       data: {'p': p},
       // cacheOptions:
       //     buildCacheOptions(const Duration(days: 4), forceRefresh: true),
-      extra: {'ua': 'mob', 'silentError': silent},
+      extra: {'ua': 'pc', 'silentError': silent, 'resType': ResponseType.plain},
     );
     // V2EX may return a verification page or a non-topic HTML document.
     // Fail explicitly instead of dereferencing absent topic DOM elements.
@@ -101,7 +101,8 @@ class TopicWebApi {
         document.querySelector('#Main') ??
         document.body;
     final topicHeader = document.querySelector('#Main .header h1') ??
-        document.querySelector('.box .header h1');
+        document.querySelector('.box .header h1') ??
+        document.querySelector('#Main h1');
     dom.Element? mainBox = topicHeader;
     while (mainBox != null && !mainBox.classes.contains('box')) {
       mainBox = mainBox.parent;
@@ -116,7 +117,8 @@ class TopicWebApi {
     }
 
     /// 标题、头像、昵称、发布时间、浏览量
-    final headerEl = mainBox.querySelector('.header');
+    final headerEl = mainBox.querySelector('.header') ??
+        topicHeader?.parent;
     if (headerEl == null) {
       throw const FormatException('帖子页面结构发生变化，未找到标题区域');
     }
@@ -162,7 +164,8 @@ class TopicWebApi {
         }
       }
     }
-    detailModel.topicTitle = headerEl.querySelector('h1')?.text ?? '';
+    detailModel.topicTitle =
+        (headerEl.querySelector('h1') ?? topicHeader)?.text ?? '';
     if (detailModel.topicTitle.isEmpty) {
       throw const FormatException('帖子标题解析失败，网站页面结构可能已变化');
     }
@@ -188,7 +191,10 @@ class TopicWebApi {
     }
 
     // 判断是否有正文
-    final dom.Element? contentDom = mainBox.querySelector('div.cell > div');
+    final dom.Element? contentDom =
+        mainBox.querySelector('.topic_content') ??
+        document.querySelector('#Main .topic_content') ??
+        mainBox.querySelector('div.cell > div');
     if (contentDom != null) {
       detailModel.content = contentDom.text;
       detailModel.contentRendered = Utils.linkMatch(contentDom);
@@ -272,7 +278,8 @@ class TopicWebApi {
         }
       }
       replyBoxDom ??= document.querySelector('#Replies') ??
-          document.querySelector('div.box[id="Replies"]');
+          document.querySelector('div.box[id="Replies"]') ??
+          document.querySelector('#Main .cell[id^="r_"]')?.parent;
 
       if (replyBoxDom != null) {
         final replyInfoCell = replyBoxDom.querySelector('div.cell');
