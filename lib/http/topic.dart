@@ -94,11 +94,21 @@ class TopicWebApi {
 
     updateOnceFromMenu();
 
+    // Mobile and desktop V2EX layouts do not always share the same wrapper.
+    // Locate the topic by its header rather than requiring #Wrapper.
     final wrapperEl = document.querySelector('#Wrapper');
-    final wrapperContent = wrapperEl?.querySelector('div');
-    final mainBox = document.querySelector('#Main > div.box');
-    if (wrapperContent == null || mainBox == null) {
-      throw const FormatException('帖子页面结构发生变化，未找到正文区域');
+    final wrapperContent = wrapperEl?.querySelector('div') ??
+        document.querySelector('#Main') ??
+        document.body;
+    final mainBox = document.querySelector('#Main > div.box') ??
+        document.querySelector('#Main .box:has(.header)') ??
+        document.querySelector('.box:has(.header h1)');
+    if (mainBox == null) {
+      final pageTitle = document.querySelector('title')?.text.trim() ?? '';
+      final hasLogin = document.querySelector('form[action*="signin"]') != null;
+      throw FormatException(hasLogin
+          ? 'V2EX 返回登录页面，请登录后重试'
+          : '无法识别帖子页面（HTTP ${response.statusCode}，标题：${pageTitle.isEmpty ? "无" : pageTitle}）');
     }
 
     /// 标题、头像、昵称、发布时间、浏览量
@@ -243,7 +253,7 @@ class TopicWebApi {
       dom.Element? replyBoxDom;
 
       /// tag标签判断：过滤掉分隔符
-      final wrapperChildren = wrapperContent.children
+      final wrapperChildren = (wrapperContent ?? mainBox.parent ?? mainBox).children
           .where((element) => !(element.localName == 'div' &&
               (element.classes.contains('sep') ||
                   element.id.contains('topic-tip-box'))))
@@ -257,8 +267,8 @@ class TopicWebApi {
           break;
         }
       }
-      replyBoxDom ??= wrapperContent.querySelector('#Replies') ??
-          wrapperContent.querySelector('div.box[id="Replies"]');
+      replyBoxDom ??= document.querySelector('#Replies') ??
+          document.querySelector('div.box[id="Replies"]');
 
       if (replyBoxDom != null) {
         final replyInfoCell = replyBoxDom.querySelector('div.cell');
