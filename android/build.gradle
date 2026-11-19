@@ -1,29 +1,4 @@
-buildscript {
-    ext.kotlin_version = '2.1.20'
-    repositories {
-        google()
-        mavenCentral()
-    }
-
-    configurations.all {
-        resolutionStrategy {
-            force 'androidx.core:core-ktx:1.15.0'
-        }
-    }
-
-
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.3.2'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-    }
-
-//    android {
-//        defaultConfig {
-//            multiDexEnabled true
-//        }
-//    }
-}
-
+// Plugin versions are managed in settings.gradle to avoid AGP/Kotlin conflicts.
 allprojects {
     repositories {
         google()

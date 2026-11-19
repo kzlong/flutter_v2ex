@@ -558,7 +558,12 @@ class _TopicDetailState extends State<TopicDetail> with WidgetsBindingObserver {
     }
     final showRefreshToast = userRefresh && _detailModel != null;
     final id = topicId;
-    if (id.isEmpty) return Future.value();
+    if (id.isEmpty) {
+      if (mounted) {
+        setState(() => _detailError = '帖子 ID 缺失，无法加载详情');
+      }
+      return Future.value();
+    }
     final account = ContentCache.scope;
     final page = refresh
         ? (reversed ? _totalPage : _entryPage)
@@ -1031,7 +1036,7 @@ class _TopicDetailState extends State<TopicDetail> with WidgetsBindingObserver {
                   : null,
               body: _detailError != null && _detailModel == null
                   ? NetworkErrorPage(
-                      message: '正文尚未缓存或更新失败，请联网后重试', onRetry: getDetailInit)
+                      message: _detailError ?? '帖子加载失败，请重试', onRetry: getDetailInit)
                   : _topicDetail == null && _detailModel == null
                       ? showLoading()
                       : Scrollbar(
